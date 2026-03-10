@@ -155,6 +155,7 @@ class RoomChat extends BaseChannel {
     await this.queue.publish(QUEUE_CHANNELS.ROOM, { type: "message", message });
 
     socket.to(room).emit(EVENTS.ROOM_MESSAGE, message);
+    socket.emit(EVENTS.ROOM_MESSAGE, { ...message, self: true });
   }
 
   /** @private */

@@ -3,7 +3,7 @@
 const { BaseChannel } = require("./BaseChannel");
 const { EVENTS, INTERNAL_EVENTS, QUEUE_CHANNELS, GROUP_ROLES } = require("../core/constants");
 const { withValidation } = require("../middleware/validation");
-const { AuthorizationError } = require("../utils/errors");
+
 
 const CREATE_SCHEMA = {
   name: { type: "string", required: true, maxLength: 128 },
@@ -229,7 +229,8 @@ class GroupChat extends BaseChannel {
 
   /** @private */
   async _handleInvite(io, socket, userId, data) {
-    await this._requireRole(socket, data.groupId, userId, [GROUP_ROLES.OWNER, GROUP_ROLES.ADMIN]);
+    const allowed = await this._requireRole(socket, data.groupId, userId, [GROUP_ROLES.OWNER, GROUP_ROLES.ADMIN]);
+    if (!allowed) return;
 
     await this.persistence.addGroupMember(data.groupId, {
       userId: data.userId,
@@ -255,7 +256,8 @@ class GroupChat extends BaseChannel {
 
   /** @private */
   async _handleKick(io, socket, userId, data) {
-    await this._requireRole(socket, data.groupId, userId, [GROUP_ROLES.OWNER, GROUP_ROLES.ADMIN]);
+    const allowed = await this._requireRole(socket, data.groupId, userId, [GROUP_ROLES.OWNER, GROUP_ROLES.ADMIN]);
+    if (!allowed) return;
 
     if (data.userId === userId) {
       socket.emit(EVENTS.ERROR, { code: "CANNOT_KICK_SELF", message: "Cannot kick yourself" });
@@ -287,18 +289,23 @@ class GroupChat extends BaseChannel {
 
   // ── Helpers ───────────────────────────────────────────────────────
 
-  /** @private */
+  /**
+   * Returns `true` if the user holds one of the allowed roles, `false` otherwise.
+   * On failure an error event is emitted to the socket so the caller can simply `return`.
+   * @private
+   */
   async _requireRole(socket, groupId, userId, allowedRoles) {
     const group = await this.persistence.getGroup(groupId);
     if (!group) {
       socket.emit(EVENTS.ERROR, { code: "GROUP_NOT_FOUND", message: "Group not found" });
-      throw new AuthorizationError("Group not found");
+      return false;
     }
     const member = group.members?.find((m) => m.userId === userId);
     if (!member || !allowedRoles.includes(member.role)) {
       socket.emit(EVENTS.ERROR, { code: "FORBIDDEN", message: "Insufficient permissions" });
-      throw new AuthorizationError("Insufficient permissions");
+      return false;
     }
+    return true;
   }
 
   /** @private */
